@@ -18,7 +18,7 @@ func resourceDatadogIntegrationWebhooks() *schema.Resource {
 		Update: resourceDatadogIntegrationWebhooksUpdate,
 		Delete: resourceDatadogIntegrationWebhooksDelete,
 		Importer: &schema.ResourceImporter{
-			State: resourceDatadogIntegrationWebhooksImport,
+			State: ImportStatePassthrough,
 		},
 
 		Schema: map[string]*schema.Schema{
@@ -50,14 +50,63 @@ func resourceDatadogIntegrationWebhooks() *schema.Resource {
 	}
 }
 
+func buildIntegrationWebhooks(d *schema.ResourceData) (*datadog.IntegrationWebhookRequest, error) {
+	wh := &datadog.IntegrationWebhookRequest{}
+	wh.SetHeaders(d.Get("headers").(string))
+	wh.HasEncodeAsForm(d.Get("encode_as_form").(bool))
+	wh.SetCustomPayload(d.Get("custom_payload").(string))
+	wh.HasCustomPayload(d.Get("use_custom_payload").(string))
+
+	hooks := []datadog.Webhook{}
+	configHooks, ok := d.GetOk("hooks")
+	if ok {
+		for _, sInterface := range configHooks.([]interface{}) {
+			s := sInterface.(map[string]interface{})
+
+			hook := datadog.Webhook{}
+			hook.SetName(s["name"].(string))
+			hook.SetURL(s["url"].(string))
+
+			hooks = append(hooks, hook)
+		}
+	}
+	wh.Webhooks = hooks
+
+	return wh, nil
+}
+
 func resourceDatadogIntegrationWebhooksCreate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*datadog.Client)
 	integrationWhMutex.Lock()
 	defer integrationWhMutex.Unlock()
 
-	// TODO
+	wh, err := buildIntegrationWebhooks(d)
+	if err != nil {
+		return fmt.Errorf("Failed to parse resource configuration: %s", err.Error())
+	}
 
+	if err := client.CreateIntegrationWebhook(wh); err != nil {
+		return fmt.Errorf("Failed to create a webhooks integration using Datadog API: %s", err.Error())
+	}
+
+	whIntegration, err := client.GetIntegrationWebhook()
+	if err != nil {
+		return fmt.Errorf("error retrieving webhooks integrations: %s", err.Error())
+	}
+
+	d.SetId(whIntegration.GetName())
+
+	return nil
 }
+
+func resourceDatadogIntegrationWebhooksUpdate(d *schema.ResourceData, meta interface{}) error {
+	client := meta.(*datadog.Client)
+	integrationWhMutex.Lock()
+	defer integrationWhMutex.Unlock()
+
+	// TODO
+}
+
 
 func resourceDatadogIntegrationWebhooksRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*datadog.Client)
